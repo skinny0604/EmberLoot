@@ -122,6 +122,7 @@ local curZone, curCreature = nil, nil
 local searchResults = nil
 local ROW_H = 18
 local NAV_VISIBLE, ITEM_VISIBLE = 23, 23
+local refresh   -- 前向声明：行工厂的 OnClick 闭包引用它（local 必须在闭包创建处可见）
 
 -- ============================================================ 行工厂
 
@@ -255,14 +256,20 @@ local function setItemRow(row, d)
         bits[#bits + 1] = "|cff707070← " .. d.srcName .. "|r"
     end
     row.meta:SetText(table.concat(bits, " "))
-    -- 图标：物品缓存优先，否则数据库图标名
-    local ok, tex = pcall(GetItemInfo, entry)
+    -- 图标：物品缓存优先（GetItemInfo 第 9 个返回值 = texture），否则数据库图标名，
+    -- 都失败退问号。SetTexture 成功返回 1、失败 nil，pcall 后取第二个值判断
+    local rets = { pcall(GetItemInfo, entry) }
     local set = false
-    if ok and type(tex) == "string" and tex ~= "" then
-        set = pcall(row.icon.SetTexture, row.icon, tex)
+    if rets[1] and type(rets[9]) == "string" and rets[9] ~= "" then
+        local okr, r = pcall(row.icon.SetTexture, row.icon, rets[9])
+        set = okr and r ~= nil and r ~= false
     end
     if not set then
-        pcall(row.icon.SetTexture, row.icon, "Interface\\Icons\\" .. (it[4] or "INV_Misc_QuestionMark"))
+        local okr, r = pcall(row.icon.SetTexture, row.icon, "Interface\\Icons\\" .. (it[4] or ""))
+        set = okr and r ~= nil and r ~= false
+    end
+    if not set then
+        pcall(row.icon.SetTexture, row.icon, "Interface\\Icons\\INV_Misc_QuestionMark")
     end
 end
 
@@ -376,7 +383,7 @@ local function updateScroll(scroll, n, visible)
     return FauxScrollFrame_GetOffset(scroll)
 end
 
-local function refresh()
+refresh = function()
     if not frame then return end
     local c = cfgReady()
     local lang = c.lang
