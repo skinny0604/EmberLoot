@@ -1,9 +1,14 @@
-## EmberLoot 0.1.0
+## EmberLoot 0.1.1
 
 AtlasLoot 式副本掉落浏览器（Emberveil 客户端，WoW 1.12.1 / Lua 5.1 API）。
 AtlasLoot-style dungeon loot browser (Emberveil client, WoW 1.12.1 / Lua 5.1 API).
 
 ![EmberLoot](https://raw.githubusercontent.com/skinny0604/EmberLoot/main/docs/preview.png)
+
+### 0.1.1 修复 / Fixed
+
+- **修复打开窗口即报错**：`UIPanelTemplates.lua:169 attempt to index local 'scrollBar' (a nil value)` —— Emberveil 客户端的 `FauxScrollFrame_Update` 对无滚动条模板（FauxScrollFrameTemplateLight）没有空值保护。滚动已改为插件自管偏移 + 滚轮驱动，不再调用任何 `FauxScrollFrame_*` API。
+- Fixed the on-open error `attempt to index local 'scrollBar' (a nil value)` by replacing FauxScrollFrame_* calls with self-managed scroll offsets driven by mouse wheel.
 
 ### 功能 / Features
 
@@ -21,8 +26,8 @@ AtlasLoot-style dungeon loot browser (Emberveil client, WoW 1.12.1 / Lua 5.1 API
 
 ### 安装 / Install
 
-1. 下载 `EmberLoot-0.1.0.zip` 解压
-2. `EmberLoot` 文件夹放进 `...\Emberveil\live\Azeroth\Interface\AddOns\`
-3. 重登游戏，聊天栏出现 `EmberLoot 0.1.0` 即成功；`/el` 打开
+1. 下载 `EmberLoot-0.1.1.zip` 解压
+2. `EmberLoot` 文件夹放进 `...\Emberveil\live\Azeroth\Interface\AddOns\`（覆盖旧版）
+3. 重登游戏，聊天栏出现 `EmberLoot 0.1.1` 即成功；`/el` 打开
 
 Full guide: [README.md（中文）](../blob/main/README.md) · [README_EN.md (English)](../blob/main/README_EN.md)

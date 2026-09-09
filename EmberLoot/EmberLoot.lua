@@ -10,7 +10,7 @@
 -- 命令：/el 或 /emberloot 开关窗口；/el zh|en 切语言；/el fav 只看收藏。
 -- 交互：左列点副本→首领；右列始终是物品表；Shift+点物品=收藏；聊天框打开时点物品=插链接。
 
-local VERSION = "0.1.0"
+local VERSION = "0.1.1"
 
 -- ============================================================ 配置
 
@@ -122,7 +122,40 @@ local curZone, curCreature = nil, nil
 local searchResults = nil
 local ROW_H = 18
 local NAV_VISIBLE, ITEM_VISIBLE = 23, 23
+local navOffset, itemOffset = 0, 0   -- 自管滚动偏移（客户端 FauxScrollFrame_Update 对无滚动条模板崩溃）
+local navCount, itemCount = 0, 0
 local refresh   -- 前向声明：行工厂的 OnClick 闭包引用它（local 必须在闭包创建处可见）
+
+-- ============================================================ 滚动（自管，无滚动条依赖）
+
+local function clampOff(off, n, visible)
+    local mx = n - visible
+    if mx < 0 then mx = 0 end
+    if off > mx then off = mx end
+    if off < 0 then off = 0 end
+    return off
+end
+
+local function resetOffsets()
+    navOffset, itemOffset = 0, 0
+end
+
+local function wheelStep(delta, which)
+    delta = tonumber(delta) or 0
+    if which == "nav" then
+        navOffset = clampOff(navOffset - delta, navCount, NAV_VISIBLE)
+    else
+        itemOffset = clampOff(itemOffset - delta, itemCount, ITEM_VISIBLE)
+    end
+    if refresh then refresh() end
+end
+
+local function wheelify(f, which)
+    pcall(f.EnableMouseWheel, f, true)
+    f:SetScript("OnMouseWheel", function()
+        wheelStep(arg1, which)
+    end)
+end
 
 -- ============================================================ 行工厂
 
@@ -148,15 +181,19 @@ local function makeNavRow(idx)
         if row.navType == "zone" then
             curZone = row.zid
             curCreature = nil
+            resetOffsets()
             refresh()
         elseif row.navType == "back" then
             curZone, curCreature = nil, nil
+            resetOffsets()
             refresh()
         elseif row.navType == "creature" then
             curCreature = row.cid
+            itemOffset = 0
             refresh()
         end
     end)
+    wheelify(row, "nav")
     return row
 end
 
@@ -217,6 +254,7 @@ local function makeItemRow(idx)
             pcall(ChatEdit_InsertLink, link)
         end
     end)
+    wheelify(row, "item")
     return row
 end
 
@@ -381,9 +419,14 @@ end
 
 -- ============================================================ 刷新
 
-local function updateScroll(scroll, n, visible)
-    FauxScrollFrame_Update(scroll, n, visible, ROW_H)
-    return FauxScrollFrame_GetOffset(scroll)
+local function updateScroll(_, n, visible, which)
+    if which == "nav" then
+        navOffset = clampOff(navOffset, n, visible)
+        return navOffset
+    else
+        itemOffset = clampOff(itemOffset, n, visible)
+        return itemOffset
+    end
 end
 
 refresh = function()
@@ -462,7 +505,8 @@ refresh = function()
         navItems[#navItems + 1] = d
     end
     local nLeft = #leftRows
-    local offLeft = updateScroll(navScroll, nLeft, NAV_VISIBLE)
+    navCount = nLeft
+    local offLeft = updateScroll(navScroll, nLeft, NAV_VISIBLE, "nav")
     while #navRows < NAV_VISIBLE do navRows[#navRows + 1] = makeNavRow(#navRows + 1) end
     for i = 1, NAV_VISIBLE do
         local row = navRows[i]
@@ -499,7 +543,8 @@ refresh = function()
     -- ---- 右列渲染
     rightRows = applyFilter(rightRows)
     local nRight = #rightRows
-    local offRight = updateScroll(itemScroll, nRight, ITEM_VISIBLE)
+    itemCount = nRight
+    local offRight = updateScroll(itemScroll, nRight, ITEM_VISIBLE, "item")
     while #itemRows < ITEM_VISIBLE do itemRows[#itemRows + 1] = makeItemRow(#itemRows + 1) end
     for i = 1, ITEM_VISIBLE do
         local row = itemRows[i]
@@ -573,6 +618,7 @@ local function buildUI()
     favBtn:SetPoint("RIGHT", langBtn, "LEFT", -6, 0)
     favBtn:SetScript("OnClick", function()
         viewMode = (viewMode == "fav") and "browse" or "fav"
+        resetOffsets()
         refresh()
     end)
 
@@ -581,6 +627,7 @@ local function buildUI()
     qBtn:SetScript("OnClick", function()
         local c = cfgReady()
         c.quality = ((c.quality or 0) + 1) % 5
+        itemOffset = 0
         refresh()
     end)
 
@@ -591,6 +638,7 @@ local function buildUI()
     searchBox:SetScript("OnEnterPressed", function()
         searchResults = buildSearch(searchBox:GetText())
         viewMode = searchResults and "search" or "browse"
+        itemOffset = 0
         refresh()
         searchBox:ClearFocus()
     end)
@@ -603,27 +651,25 @@ local function buildUI()
             viewMode = "browse"
         elseif curCreature then
             curCreature = nil
+            itemOffset = 0
         else
             curZone = nil
+            resetOffsets()
         end
         refresh()
     end)
 
-    -- 左列滚动区
+    -- 左列滚动区（无滚动条模板；滚轮由 wheelify 自管，防客户端 FauxScrollFrame 崩溃）
     navScroll = CreateFrame("ScrollFrame", "EmberLootNavScroll", frame, "FauxScrollFrameTemplateLight")
     navScroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 26, -84)
     navScroll:SetWidth(230); navScroll:SetHeight(NAV_VISIBLE * ROW_H)
-    navScroll:SetScript("OnVerticalScroll", function()
-        FauxScrollFrame_OnVerticalScroll(navScroll, arg1, ROW_H, refresh)
-    end)
+    wheelify(navScroll, "nav")
 
     -- 右列滚动区
     itemScroll = CreateFrame("ScrollFrame", "EmberLootItemScroll", frame, "FauxScrollFrameTemplateLight")
     itemScroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 276, -84)
     itemScroll:SetWidth(416); itemScroll:SetHeight(ITEM_VISIBLE * ROW_H)
-    itemScroll:SetScript("OnVerticalScroll", function()
-        FauxScrollFrame_OnVerticalScroll(itemScroll, arg1, ROW_H, refresh)
-    end)
+    wheelify(itemScroll, "item")
 
     -- 分隔线
     local sep = frame:CreateTexture(nil, "ARTWORK")

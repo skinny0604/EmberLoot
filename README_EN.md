@@ -2,7 +2,7 @@
 
 English | [中文](README.md)
 
-**Dungeon & raid loot browser for Emberveil** (AtlasLoot-style) · For the Emberveil client (WoW 1.12.1 emulation / Lua 5.1 API) · Current version 0.1.0
+**Dungeon & raid loot browser for Emberveil** (AtlasLoot-style) · For the Emberveil client (WoW 1.12.1 emulation / Lua 5.1 API) · Current version 0.1.1
 
 ![EmberLoot](docs/preview.png)
 
@@ -19,9 +19,9 @@ English | [中文](README.md)
 
 ## Install
 
-1. Download `EmberLoot-0.1.0.zip` and extract it
+1. Download `EmberLoot-0.1.1.zip` and extract it
 2. Put the whole `EmberLoot` folder into `...\Emberveil\live\Azeroth\Interface\AddOns\`
-3. Re-login; when chat prints `EmberLoot 0.1.0 — N instances / M items` you are set
+3. Re-login; when chat prints `EmberLoot 0.1.1 — N instances / M items` you are set
 
 ## Commands
 

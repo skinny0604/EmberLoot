@@ -2,7 +2,7 @@
 
 中文 | [English](README_EN.md)
 
-**Emberveil 副本掉落浏览器**（AtlasLoot 式）· 适用于 Emberveil 客户端（WoW 1.12.1 模拟 / Lua 5.1 API）· 当前版本 0.1.0
+**Emberveil 副本掉落浏览器**（AtlasLoot 式）· 适用于 Emberveil 客户端（WoW 1.12.1 模拟 / Lua 5.1 API）· 当前版本 0.1.1
 
 ![EmberLoot](docs/preview.png)
 
@@ -19,9 +19,9 @@
 
 ## 安装
 
-1. 下载 `EmberLoot-0.1.0.zip` 并解压
+1. 下载 `EmberLoot-0.1.1.zip` 并解压
 2. 把 `EmberLoot` 整个文件夹放进 `...\Emberveil\live\Azeroth\Interface\AddOns\`
-3. 重登游戏，聊天栏出现 `EmberLoot 0.1.0 — N 个副本 / M 件物品` 即成功
+3. 重登游戏，聊天栏出现 `EmberLoot 0.1.1 — N 个副本 / M 件物品` 即成功
 
 ## 命令
 

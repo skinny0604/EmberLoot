@@ -191,6 +191,20 @@ step("favorites view via slash", function()
     SlashCmdList["EMBERLOOT"]("")   -- reopen (state kept)
 end)
 
+step("mouse wheel scroll (self-managed offset)", function()
+    local ns = REG["EmberLootNavScroll"]
+    local is = REG["EmberLootItemScroll"]
+    assert(ns and ns._scripts.OnMouseWheel, "nav scroll missing OnMouseWheel")
+    assert(is and is._scripts.OnMouseWheel, "item scroll missing OnMouseWheel")
+    local row = REG["EmberLootNav1"]
+    assert(row and row._scripts.OnMouseWheel, "nav row missing OnMouseWheel")
+    arg1 = -3; ns._scripts.OnMouseWheel()   -- 下滚 3 行
+    arg1 = 3;  ns._scripts.OnMouseWheel()   -- 回滚
+    arg1 = -99999; is._scripts.OnMouseWheel() -- 越界下滚（须被钳制不炸）
+    arg1 = 99999;  is._scripts.OnMouseWheel() -- 越界上滚（须被钳制不炸）
+    arg1 = nil; is._scripts.OnMouseWheel()  -- 空滚轮事件
+end)
+
 step("back button", function()
     local b = REG["EmberLootBack"]
     if b and b._scripts.OnClick then b._scripts.OnClick() end
