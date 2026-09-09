@@ -57,8 +57,11 @@ def jload(path, default):
 
 
 def jsave(path, obj):
-    with open(os.path.join(OUT, path), "w", encoding="utf-8") as f:
+    p = os.path.join(OUT, path)
+    tmp = p + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(obj, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, p)   # atomic: kill-safe
 
 
 # ---------------------------------------------------------------- zones
@@ -182,7 +185,9 @@ def parse_creature_page(h):
     return out
 
 
-def stage_creatures():
+def stage_creatures(workers=8):
+    import concurrent.futures as cf
+    import threading
     zones = jload("zones.json", {})
     inst = {zid: z for zid, z in zones.items() if "limit" in z}
     todo = {}
@@ -194,35 +199,54 @@ def stage_creatures():
     creatures = jload("creatures.json", {})   # cid -> meta (en/zh name, level, rank)
     drops = jload("drops.json", {})           # cid -> [drop rows en]
     drops_zh = jload("drops_zh.json", {})     # cid -> [drop rows zh]
-    ids = sorted(todo)
-    for i, cid in enumerate(ids):
-        if str(cid) in creatures and creatures[str(cid)].get("fetched"):
-            continue
+    lock = threading.Lock()
+    done = {"n": 0}
+    # priority: elites/bosses first (rank>=1), rank-less trash last
+    def prio(cid):
+        zids = todo[cid]
+        best = 0
+        for zid in zids:
+            for c in inst[zid].get("creatures", []):
+                if c["id"] == cid and (c.get("rank_en") or c.get("rank_zh")):
+                    best = max(best, 1)
+        return -best
+    ids = [cid for cid in sorted(todo)
+           if not (str(cid) in creatures and creatures[str(cid)].get("fetched"))]
+    ids.sort(key=prio)
+    print(f"to fetch: {len(ids)} (skipping {len(todo) - len(ids)} cached)")
+
+    def work(cid):
         h_en, _ = fetch(f"{BASE}/creature/{cid}", f"creature_{cid}_en.html")
         if not h_en:
-            print(f"  [{i+1}] {cid}: FETCH FAILED")
-            continue
+            return cid, None, None
         meta = parse_creature_page(h_en)
-        blob_en = rsc_blob(h_en)
-        m = re.search(r'\{"href":"/creature/%d","title":"([^"]+)"' % cid, blob_en)
         h_zh, _ = fetch(f"{BASE}/creature/{cid}", f"creature_{cid}_zh.html", zh=True)
         meta_zh = parse_creature_page(h_zh) if h_zh else {}
-        rec = {"id": cid, "name_en": meta.get("name"), "name_zh": meta_zh.get("name"),
-               "level": meta.get("level"), "rank": meta.get("rank"),
-               "rank_en": meta.get("rank_name"), "rank_zh": meta_zh.get("rank_name"),
-               "zones": todo[cid], "fetched": True}
-        creatures[str(cid)] = rec
-        if "drops" in meta:
-            drops[str(cid)] = meta["drops"]
-        if "drops" in meta_zh:
-            drops_zh[str(cid)] = meta_zh["drops"]
-        nd = len(meta.get("drops", []))
-        print(f"  [{i+1}/{len(ids)}] {cid} {rec['name_en']} / {rec['name_zh']} "
-              f"L{rec.get('level')} rank={rec.get('rank')} drops={nd}")
-        if (i + 1) % 20 == 0:
-            jsave("creatures.json", creatures)
-            jsave("drops.json", drops)
-            jsave("drops_zh.json", drops_zh)
+        return cid, meta, meta_zh
+
+    with cf.ThreadPoolExecutor(max_workers=workers) as ex:
+        for cid, meta, meta_zh in ex.map(work, ids):
+            rec = {"id": cid, "name_en": (meta or {}).get("name"),
+                   "name_zh": (meta_zh or {}).get("name"),
+                   "level": (meta or {}).get("level"), "rank": (meta or {}).get("rank"),
+                   "rank_en": (meta or {}).get("rank_name"),
+                   "rank_zh": (meta_zh or {}).get("rank_name"),
+                   "zones": todo[cid], "fetched": True}
+            with lock:
+                creatures[str(cid)] = rec
+                if meta and "drops" in meta:
+                    drops[str(cid)] = meta["drops"]
+                if meta_zh and "drops" in meta_zh:
+                    drops_zh[str(cid)] = meta_zh["drops"]
+                done["n"] += 1
+                n = done["n"]
+                if n % 20 == 0:
+                    jsave("creatures.json", creatures)
+                    jsave("drops.json", drops)
+                    jsave("drops_zh.json", drops_zh)
+                print(f"  [{n}/{len(ids)}] {cid} {rec['name_en']} / {rec['name_zh']} "
+                      f"L{rec.get('level')} rank={rec.get('rank')} "
+                      f"drops={len(meta.get('drops', [])) if meta else 'FAIL'}")
     jsave("creatures.json", creatures)
     jsave("drops.json", drops)
     jsave("drops_zh.json", drops_zh)
@@ -247,10 +271,58 @@ def stage_lua():
     drops_zh = jload("drops_zh.json", {})
     inst = {zid: z for zid, z in zones.items() if "limit" in z and z.get("creatures")}
 
+    TRASH_BASE = 9000000   # 合成"区域小怪池"条目的 cid 前缀（9000000+zid）
+
+    # ---- 按区瘦身：rank>=2 或 小表(<=50行) 保留个体；rank<=1 且大表合并成区域小怪池
+    slim_creatures = {}   # cid -> record（含合成条目）
+    slim_drops = {}       # cid -> rows（en）
+    slim_drops_zh = {}
+    zone_members = {}     # zid -> [cid,...]（EL_Zones 的生物表）
+    for zid, z in sorted(inst.items()):
+        members = []
+        pool = {}          # entry -> merged row (best chance)
+        pool_zh = {}
+        for c in z.get("creatures", []):
+            cid = str(c["id"])
+            if cid not in drops or not drops[cid]:
+                continue
+            rec = creatures.get(cid, {})
+            rank = rec.get("rank") or 0
+            nrows = len(drops[cid])
+            keep = rank >= 2 or nrows <= 50
+            if keep:
+                members.append(int(cid))
+                if cid not in slim_creatures:
+                    slim_creatures[cid] = rec
+                    slim_drops[cid] = drops[cid]
+                    slim_drops_zh[cid] = drops_zh.get(cid, [])
+            else:
+                zh_rows = {r["entry"]: r for r in drops_zh.get(cid, [])}
+                for r in drops[cid]:
+                    e = r["entry"]
+                    cur = pool.get(e)
+                    if cur is None or r["chance"] > cur["chance"]:
+                        pool[e] = r
+                        pool_zh[e] = zh_rows.get(e, r)
+        synth = TRASH_BASE + int(zid)
+        if pool:
+            pooled = []
+            for e, r in pool.items():
+                pooled.append(r)
+            pooled.sort(key=lambda r: r["entry"])
+            slim_creatures[str(synth)] = {
+                "id": synth, "name_en": "Zone Trash Pool", "name_zh": "区域小怪掉落池",
+                "level": 0, "rank": 0, "zones": [int(zid)], "synthetic": True,
+            }
+            slim_drops[str(synth)] = pooled
+            slim_drops_zh[str(synth)] = [pool_zh.get(r["entry"], r) for r in pooled]
+            members.append(synth)
+        zone_members[zid] = members
+
     # items: entry -> [name_en, name_zh, quality, icon]
     items = {}
-    for cid, rows in drops.items():
-        zrows = drops_zh.get(cid, [])
+    for cid, rows in slim_drops.items():
+        zrows = slim_drops_zh.get(cid, [])
         zh_by_entry = {r["entry"]: r for r in zrows}
         for r in rows:
             e = r["entry"]
@@ -260,16 +332,15 @@ def stage_lua():
                             "q": r["quality"], "icon": r["icon"]}
             else:
                 zr = zh_by_entry.get(e)
-                if zr and items[e]["n_zh"] == items[e]["n_en"]:
+                if zr and items[e]["n_zh"] == items[e]["n_en"] and zr.get("name"):
                     items[e]["n_zh"] = zr["name"]
 
     lines = []
     lines.append("-- EmberLoot data v1 (generated by tools/crawl.py - do not edit)")
-    lines.append("-- zones: {id, name_en, name_zh, player_limit, creatures{cid=priority}}")
+    lines.append("-- zones: {id, name_en, name_zh, player_limit, creatures{cid...}}")
     lines.append("EL_Zones = {")
     for zid, z in sorted(inst.items()):
-        cids = [c["id"] for c in z["creatures"]
-                if str(c["id"]) in creatures and str(c["id"]) in drops]
+        cids = zone_members.get(zid, [])
         if not cids:
             continue
         lines.append(f'  [{zid}] = {{{lua_str(z.get("name_en","?"))},{lua_str(z.get("name_zh","?"))},'
@@ -277,8 +348,8 @@ def stage_lua():
     lines.append("}")
     lines.append("-- creatures: cid -> {name_en, name_zh, level, rank, zoneIds...}")
     lines.append("EL_Creatures = {")
-    for cid_s, c in sorted(creatures.items(), key=lambda kv: int(kv[0])):
-        if cid_s not in drops:
+    for cid_s, c in sorted(slim_creatures.items(), key=lambda kv: int(kv[0])):
+        if cid_s not in slim_drops:
             continue
         zl = ",".join(str(z) for z in c.get("zones", []))
         lines.append(f'  [{cid_s}] = {{{lua_str(c.get("name_en") or "?")},{lua_str(c.get("name_zh") or "?")},'
@@ -286,11 +357,13 @@ def stage_lua():
     lines.append("}")
     lines.append("-- drops: cid -> rows {entry, chance, group, min, max, quest}")
     lines.append("EL_Drops = {")
-    for cid_s, rows in sorted(drops.items(), key=lambda kv: int(kv[0])):
+    n_rows = 0
+    for cid_s, rows in sorted(slim_drops.items(), key=lambda kv: int(kv[0])):
         cells = []
         for r in rows:
             cells.append(f'{{{r["entry"]},{r["chance"]},{r["group"] or 0},{r["min"]},{r["max"]},'
                          f'{"1" if r["quest"] else "0"}}}')
+        n_rows += len(rows)
         lines.append(f'  [{cid_s}] = {{{",".join(cells)}}},')
     lines.append("}")
     lines.append("-- items: entry -> {name_en, name_zh, quality, icon}")
@@ -304,7 +377,9 @@ def stage_lua():
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
     kb = os.path.getsize(out_path) // 1024
-    print(f"data.lua written: {kb} KB, {len(inst)} instances, {len(items)} items")
+    n_trash = sum(1 for c in slim_creatures.values() if c.get("synthetic"))
+    print(f"data.lua written: {kb} KB, {len(inst)} instances, {len(items)} items, "
+          f"{len(slim_drops)} creatures ({n_trash} synthetic trash pools), {n_rows} drop rows")
 
 
 # ---------------------------------------------------------------- main
