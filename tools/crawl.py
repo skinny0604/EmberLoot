@@ -61,7 +61,11 @@ def jsave(path, obj):
     tmp = p + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(obj, f, ensure_ascii=False, indent=1)
+    tmp_check = len(json.load(open(tmp, encoding="utf-8")))
     os.replace(tmp, p)   # atomic: kill-safe
+    verify = json.load(open(p, encoding="utf-8"))
+    print(f"  [jsave] {os.path.abspath(p)} obj={len(obj)} tmp={tmp_check} size={os.path.getsize(p)} "
+          f"reload={len(verify)}")
 
 
 # ---------------------------------------------------------------- zones
@@ -82,9 +86,10 @@ def stage_zones():
     print(f"zones list: {len(zone_ids)} zone ids")
     zones = jload("zones.json", {})
     for i, zid in enumerate(zone_ids):
+        key = str(zid)   # json 键一律字符串，避免 int/str 双键重复
         h_en, _ = fetch(f"{BASE}/zone/{zid}", f"zone_{zid}_en.html")
         blob_en = rsc_blob(h_en)
-        info = zones.get(zid, {"id": zid})
+        info = zones.get(key, {"id": zid})
         # zone name: first big display heading
         m = re.search(r'"font-display text-2xl font-bold text-brand-\d+","children":"([^"]+)"', blob_en)
         if m:
@@ -129,7 +134,7 @@ def stage_zones():
             else:
                 c["name_zh"], c["rank_zh"] = t, None
         info["creatures"] = creatures
-        zones[zid] = info
+        zones[key] = info
         inst = " [instance]" if "limit" in info else ""
         print(f"  [{i+1}/{len(zone_ids)}] {zid} {info.get('name_en','?')} / {info.get('name_zh','?')}"
               f"{inst} creatures={len(creatures)}")
