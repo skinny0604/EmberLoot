@@ -127,8 +127,11 @@ local refresh   -- 前向声明：行工厂的 OnClick 闭包引用它（local �
 -- ============================================================ 行工厂
 
 local function highlightify(row)
-    row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
-    pcall(row.GetHighlightTexture.SetAlpha, row:GetHighlightTexture(), 0.35)
+    pcall(row.SetHighlightTexture, row, "Interface\\QuestFrame\\UI-QuestTitleHighlight")
+    local ok, hl = pcall(row.GetHighlightTexture, row)
+    if ok and hl then
+        pcall(hl.SetAlpha, hl, 0.35)
+    end
 end
 
 local function makeNavRow(idx)
