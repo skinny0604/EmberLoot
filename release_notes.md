@@ -1,33 +1,20 @@
-## EmberLoot 0.1.1
+## EmberLoot 0.2.0
 
 AtlasLoot 式副本掉落浏览器（Emberveil 客户端，WoW 1.12.1 / Lua 5.1 API）。
 AtlasLoot-style dungeon loot browser (Emberveil client, WoW 1.12.1 / Lua 5.1 API).
 
 ![EmberLoot](https://raw.githubusercontent.com/skinny0604/EmberLoot/main/docs/preview.png)
 
-### 0.1.1 修复 / Fixed
+### 0.2.0 新增 / New
 
-- **修复打开窗口即报错**：`UIPanelTemplates.lua:169 attempt to index local 'scrollBar' (a nil value)` —— Emberveil 客户端的 `FauxScrollFrame_Update` 对无滚动条模板（FauxScrollFrameTemplateLight）没有空值保护。滚动已改为插件自管偏移 + 滚轮驱动，不再调用任何 `FauxScrollFrame_*` API。
-- Fixed the on-open error `attempt to index local 'scrollBar' (a nil value)` by replacing FauxScrollFrame_* calls with self-managed scroll offsets driven by mouse wheel.
+- **物品属性 tooltip**：悬停物品即可查看完整属性——物品等级、需求等级、绑定类型、护甲/伤害/每秒伤害/攻速、属性（力量/敏捷/耐力/智力/精神等）、抗性、耐久度、触发法术（装备/击中时可能/使用）、套装、出售价格。属性数据全部内置于插件（双语），无需游戏内先"见过"该物品。
+  **Item stat tooltips**: hover any item for full stats — item level, required level, binding, armor/damage/DPS/speed, base stats, resistances, durability, triggered spells (equip / chance on hit / use), sets, and sell price. All stat data ships inside the addon (bilingual), no in-game cache needed.
+- **小地图按钮**：新增可拖拽的小地图按钮，沿小地图边缘吸附，左键点击直接开关掉落浏览器，位置自动记忆。
+  **Minimap button**: a draggable minimap button that snaps around the minimap edge; left-click toggles the browser and the position is remembered.
 
-### 功能 / Features
+### 说明 / Notes
 
-- 副本 → 首领 → 掉落表三级浏览；整副本聚合掉落表（按品质/掉率排序，标注来源）
-- 物品品质染色 + 图标 + 掉率 + 一组多选 + 任务标记；悬停 tooltip
-- 搜索（中英文）、品质过滤、收藏（Shift+点）、聊天框插链接
-- 中英双语一键切换（`/el zh` / `/el en`）；零第三方库
-- Instance→boss→loot browsing, quality colors & icons, tooltips, search, favorites, bilingual CN/EN UI
-
-### 数据 / Data
-
-8 个已开放副本 · 64 首领/精英 + 8 区域小怪掉落池 · 3809 件物品 · 9256 条掉落记录
-8 released instances · 64 bosses/elites + 8 zone trash pools · 3809 items · 9256 drop rows
-（数据来自 [database.emberveil.org](https://database.emberveil.org)，中英双名内置）
-
-### 安装 / Install
-
-1. 下载 `EmberLoot-0.1.1.zip` 解压
-2. `EmberLoot` 文件夹放进 `...\Emberveil\live\Azeroth\Interface\AddOns\`（覆盖旧版）
-3. 重登游戏，聊天栏出现 `EmberLoot 0.1.1` 即成功；`/el` 打开
-
-Full guide: [README.md（中文）](../blob/main/README.md) · [README_EN.md (English)](../blob/main/README_EN.md)
+- 属性数据采集自 database.emberveil.org 物品库（3800+ 物品，中英双语），由 `tools/crawl_items.py` 离线生成。
+  Stat data was crawled from database.emberveil.org (3800+ items, bilingual) via `tools/crawl_items.py`.
+- 已被客户端缓存的物品仍优先显示原生 tooltip；未缓存物品使用数据库自绘 tooltip。
+  Items already cached by your client still show the native tooltip; uncached items use the built-in database tooltip.

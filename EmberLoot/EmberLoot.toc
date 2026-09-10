@@ -1,8 +1,8 @@
 ## Interface: 11200
 ## Title: EmberLoot
-## Notes: Dungeon & raid loot browser for Emberveil (AtlasLoot-style): instance -> boss -> loot tables, search, favorites. 掉落浏览器：副本→首领→掉落表。
+## Notes: Dungeon & raid loot browser for Emberveil (AtlasLoot-style): instance -> boss -> loot tables, item stat tooltips, minimap button, search, favorites. 掉落浏览器：副本→首领→掉落表、物品属性 tooltip、小地图按钮。
 ## Author: skinny
-## Version: 0.1.1
+## Version: 0.2.0
 ## SavedVariables: EL_Config
 
 data.lua

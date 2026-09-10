@@ -210,6 +210,91 @@ step("back button", function()
     if b and b._scripts.OnClick then b._scripts.OnClick() end
 end)
 
+-- ===== 0.2.0：小地图按钮 + 属性 tooltip =====
+
+step("login event builds minimap button", function()
+    Minimap = makeframe("Minimap")
+    function GetCursorPosition() return 500, 400 end
+    local lf = REG["EmberLootLoginFrame"]
+    assert(lf and lf._scripts.OnEvent, "login frame missing OnEvent")
+    lf._scripts.OnEvent()
+    local mb = REG["EmberLootMinimapButton"]
+    assert(mb, "minimap button not created")
+    assert(mb._scripts.OnClick and mb._scripts.OnUpdate and mb._scripts.OnEnter, "minimap handlers missing")
+    mb._scripts.OnEnter()   -- tooltip 不炸
+    mb._scripts.OnLeave()
+end)
+
+step("minimap drag math (OnUpdate)", function()
+    local mb = REG["EmberLootMinimapButton"]
+    mb._scripts.OnMouseDown()
+    mb._scripts.OnUpdate()   -- GetCursorPosition -> 角度更新 + mmPlace 不炸
+    mb._scripts.OnMouseUp()
+    mb._scripts.OnUpdate()   -- 未拖拽状态 early-return
+    local c = EL_Config
+    assert(type(c.mm) == "number", "mm angle not stored after drag")
+end)
+
+step("minimap click toggles window", function()
+    local mb = REG["EmberLootMinimapButton"]
+    mb._scripts.OnClick()    -- mmMoved=false -> toggle() 不炸
+end)
+
+step("tooltip: full detail lines (zh)", function()
+    EL_Items[999001] = {"Test Sword", "测试之剑", 4, "inv_sword_39", {
+        il = 80, rl = 60, c = 2, sc = 7, inv = 13, b = 1,
+        st = {{"Agility", 5}, {"Stamina", 8}},
+        rs = {{"Fire", 8}, {"Nature", 9}},
+        dg = {{44, 115, "Physical"}, {16, 30, "Nature"}},
+        dl = 1900, du = 125, sp = 255355,
+        spx = {{"击中时可能：", "Lightning Bolt", "雷霆之怒", "deals 300 nature damage", "造成300点自然伤害"}},
+    }}
+    local lines = EL_Debug.tooltipLines(999001, "zh")
+    local txt = {}
+    for i, ln in ipairs(lines) do txt[i] = ln.text end
+    txt = table.concat(txt, "\n")
+    assert(string.find(txt, "测试之剑", 1, true), "zh name missing")
+    assert(string.find(txt, "拾取后绑定", 1, true), "bonding missing")
+    assert(string.find(txt, "44 - 115 伤害", 1, true), "damage missing")
+    assert(string.find(txt, "每秒伤害", 1, true), "dps missing")
+    assert(string.find(txt, "+8 耐力", 1, true), "stamina missing")
+    assert(string.find(txt, "+9 自然抗性", 1, true), "nature resist missing")
+    assert(string.find(txt, "击中时可能：造成300点自然伤害", 1, true), "spell proc missing")
+    assert(string.find(txt, "25金 53银 55铜", 1, true), "money wrong: ")
+    assert(string.find(txt, "物品等级 80", 1, true), "item level missing")
+end)
+
+step("tooltip: full detail lines (en)", function()
+    local lines = EL_Debug.tooltipLines(999001, "en")
+    local txt = {}
+    for i, ln in ipairs(lines) do txt[i] = ln.text end
+    txt = table.concat(txt, "\n")
+    assert(string.find(txt, "Binds when picked up", 1, true), "en bonding missing")
+    assert(string.find(txt, "44 - 115 Damage", 1, true), "en damage missing")
+    assert(string.find(txt, "+8 Stamina", 1, true), "en stamina missing")
+    assert(string.find(txt, "25g 53s 55c", 1, true), "en money wrong")
+end)
+
+step("tooltip: dps + money helpers", function()
+    local d = EL_Debug.dpsOf({dg = {{44, 115, "Physical"}}, dl = 1900})
+    assert(math.abs(d - 41.842105263) < 0.01, "dps wrong: " .. tostring(d))
+    assert(EL_Debug.fmtMoney(0) == "0铜", "zero money")
+    assert(EL_Debug.fmtMoney(10000) == "1金", "1g money")
+    assert(EL_Debug.fmtMoney(105) == "1银 5铜", "mixed money: " .. EL_Debug.fmtMoney(105))
+    assert(EL_Debug.fmtMoney(105, true) == "1s 5c", "mixed money en: " .. EL_Debug.fmtMoney(105, true))
+end)
+
+step("tooltip: detail-less fallback intact", function()
+    EL_Items[999002] = {"Old Item", "旧物品", 1, "inv_misc_food_39"}
+    local lines = EL_Debug.tooltipLines(999002, "zh")
+    assert(lines[1] and string.find(lines[1].text, "旧物品", 1, true), "fallback name wrong")
+    local found = false
+    for _, ln in ipairs(lines) do
+        if string.find(ln.text, "游戏内未见过该物品", 1, true) then found = true end
+    end
+    assert(found, "fallback hint missing")
+end)
+
 if #failures > 0 then
     error("SMOKE FAILURES: " .. table.concat(failures, " | "))
 end

@@ -1,16 +1,22 @@
--- EmberLoot 0.1.0 —— Emberveil 掉落浏览器（AtlasLoot 式：副本→首领→掉落表）
+-- EmberLoot 0.2.0 —— Emberveil 掉落浏览器（AtlasLoot 式：副本→首领→掉落表）
 -- 客户端：Emberveil UE5（1.12.1 / Lua 5.1 API）。零第三方库，OneJudge 同款 pcall 风格。
 --
 -- 数据（data.lua 生成）：
 --   EL_Zones[zid]     = {"NameEn","名字Zh", 玩家人数上限, {cid,...}}
 --   EL_Creatures[cid] = {"NameEn","名字Zh", 等级, rank, {zid,...}}
 --   EL_Drops[cid]     = { {entry,chance,group,min,max,questFlag}, ... }
---   EL_Items[entry]   = {"NameEn","名字Zh", quality, "icon_纹理名"}
+--   EL_Items[entry]   = {"NameEn","名字Zh", quality, "icon_纹理名"[, detail 表]}
+--   detail（0.2.0 新增，来自 database.emberveil.org /api/proxy/items）：
+--     il=item等级 rl=需求等级 c/class sc/subclass inv=装备位 b=绑定(1拾取2装备3使用)
+--     st={{"Agility",5},...} rs={{"Fire",8},...} dg={{min,max,"Physical"},...}
+--     ar=护甲 bl=格挡 dl=攻速ms mc=最大持有 bp/sp=买/卖价(铜) du=耐久 re=随机附魔
+--     spx={{"装备：","NameEn","名Zh","descEn","descZh"},...} dx_en/dx_zh=灰字描述 set_en/set_zh
 --
 -- 命令：/el 或 /emberloot 开关窗口；/el zh|en 切语言；/el fav 只看收藏。
--- 交互：左列点副本→首领；右列始终是物品表；Shift+点物品=收藏；聊天框打开时点物品=插链接。
+-- 交互：左列点副本→首领；右列始终是物品表；Shift+点物品=收藏；聊天框打开时点物品=插链接；
+--       悬停物品=属性 tooltip（缓存物品用客户端原生，其余用数据库自绘）；小地图按钮可拖拽、点击开关窗口。
 
-local VERSION = "0.1.1"
+local VERSION = "0.2.0"
 
 -- ============================================================ 配置
 
@@ -38,6 +44,12 @@ local EN_WORDS = {
     ["个副本 / "] = " instances / ", [" 件物品"] = " items",
     ["已加载"] = "loaded",
     ["搜索物品名..."] = "search item name...",
+    ["点击打开掉落浏览器"] = "click to open the loot browser",
+    ["出售价格"] = "Sell Price",
+    ["套装"] = "Set",
+    ["随机附魔"] = "Random enchantment",
+    ["每秒伤害"] = "DPS",
+    ["伤害"] = "Damage",
 }
 local function L(key)
     local c = cfgReady()
@@ -112,6 +124,232 @@ local function getSources(entry)
     return sourcesCache[entry] or {}
 end
 
+-- ============================================================ 物品属性词典（detail 枚举 -> 双语文案）
+
+local T_CLASS = {
+    [0] = {"Consumable", "消耗品"}, [1] = {"Container", "容器"},
+    [2] = {"Weapon", "武器"}, [4] = {"Armor", "护甲"},
+    [5] = {"Reagent", "试剂"}, [6] = {"Projectile", "弹药"},
+    [7] = {"Quiver", "箭袋"}, [9] = {"Recipe", "配方"},
+    [11] = {"Trade Goods", "商品"}, [12] = {"Quest", "任务"},
+    [13] = {"Key", "钥匙"}, [15] = {"Miscellaneous", "杂项"},
+}
+local T_SUB_WEAPON = {
+    [0] = {"Axe", "斧"}, [1] = {"Two-Handed Axe", "双手斧"}, [2] = {"Bow", "弓"},
+    [3] = {"Gun", "枪械"}, [4] = {"Mace", "锤"}, [5] = {"Two-Handed Mace", "双手锤"},
+    [6] = {"Polearm", "长柄武器"}, [7] = {"Sword", "剑"}, [8] = {"Two-Handed Sword", "双手剑"},
+    [10] = {"Staff", "法杖"}, [13] = {"Fist Weapon", "拳套"}, [14] = {"Miscellaneous", "杂项"},
+    [15] = {"Dagger", "匕首"}, [16] = {"Thrown", "投掷武器"}, [17] = {"Crossbow", "弩"},
+    [18] = {"Wand", "魔杖"}, [19] = {"Fishing Pole", "鱼竿"},
+}
+local T_SUB_ARMOR = {
+    [0] = {"Miscellaneous", "杂项"}, [1] = {"Cloth", "布甲"}, [2] = {"Leather", "皮甲"},
+    [3] = {"Mail", "锁甲"}, [4] = {"Plate", "板甲"}, [6] = {"Shield", "盾牌"},
+    [7] = {"Libram", "圣契"}, [8] = {"Idol", "神像"}, [9] = {"Totem", "图腾"},
+}
+local T_INV = {
+    [0] = {"Non-equippable", "非装备"}, [1] = {"Head", "头部"}, [2] = {"Neck", "颈部"},
+    [3] = {"Shoulder", "肩部"}, [4] = {"Shirt", "衬衣"}, [5] = {"Chest", "胸部"},
+    [6] = {"Waist", "腰部"}, [7] = {"Legs", "腿部"}, [8] = {"Feet", "脚"},
+    [9] = {"Wrist", "手腕"}, [10] = {"Hands", "手"}, [11] = {"Finger", "手指"},
+    [12] = {"Trinket", "饰品"}, [13] = {"One-Hand", "单手"}, [14] = {"Shield", "盾牌"},
+    [15] = {"Ranged", "远程"}, [16] = {"Back", "背部"}, [17] = {"Two-Hand", "双手"},
+    [18] = {"Bag", "背包"}, [19] = {"Tabard", "战袍"}, [20] = {"Robe", "长袍"},
+    [21] = {"Main Hand", "主手"}, [22] = {"Off Hand", "副手"},
+    [23] = {"Held in Off-hand", "副手物品"}, [24] = {"Ammo", "弹药"},
+    [25] = {"Thrown", "投掷"}, [26] = {"Ranged", "远程"}, [28] = {"Relic", "圣物"},
+}
+local T_BOND = {
+    [1] = {"Binds when picked up", "拾取后绑定"},
+    [2] = {"Binds when equipped", "装备后绑定"},
+    [3] = {"Binds when used", "装备时绑定"},
+}
+local T_BOND_RAW = {
+    ["Quest Item"] = {"Quest Item", "任务物品"},
+}
+local T_STAT = {
+    Agility = {"Agility", "敏捷"}, Strength = {"Strength", "力量"},
+    Stamina = {"Stamina", "耐力"}, Intellect = {"Intellect", "智力"},
+    Spirit = {"Spirit", "精神"}, Health = {"Health", "生命值"},
+    Mana = {"Mana", "法力值"},
+    Defense = {"Defense", "防御技能"}, DefenseSkill = {"Defense", "防御技能"},
+    SpellDamage = {"Spell Damage", "法术伤害"}, SpellPower = {"Spell Damage", "法术伤害"},
+    Healing = {"Healing", "治疗效果"}, HealingPower = {"Healing", "治疗效果"},
+    HitRating = {"Melee Hit", "近战命中"}, CritRating = {"Melee Crit", "近战爆击"},
+    HasteRating = {"Haste", "急速"},
+    ArcaneResistance = {"Arcane Resistance", "奥术抗性"},
+    FireResistance = {"Fire Resistance", "火焰抗性"},
+    FrostResistance = {"Frost Resistance", "冰霜抗性"},
+    NatureResistance = {"Nature Resistance", "自然抗性"},
+    ShadowResistance = {"Shadow Resistance", "暗影抗性"},
+}
+local T_RES = {
+    Holy = {"Holy Resistance", "神圣抗性"}, Fire = {"Fire Resistance", "火焰抗性"},
+    Nature = {"Nature Resistance", "自然抗性"}, Frost = {"Frost Resistance", "冰霜抗性"},
+    Shadow = {"Shadow Resistance", "暗影抗性"}, Arcane = {"Arcane Resistance", "奥术抗性"},
+}
+local T_DMG = {
+    Physical = {"Damage", "伤害"}, Holy = {"Holy Damage", "神圣伤害"},
+    Fire = {"Fire Damage", "火焰伤害"}, Nature = {"Nature Damage", "自然伤害"},
+    Frost = {"Frost Damage", "冰霜伤害"}, Shadow = {"Shadow Damage", "暗影伤害"},
+    Arcane = {"Arcane Damage", "奥术伤害"},
+}
+local T_TRIGGER = {
+    ["装备："] = {"Equip: ", "装备："},
+    ["击中时可能："] = {"Chance on hit: ", "击中时可能："},
+    ["使用："] = {"Use: ", "使用："},
+    ["装备"] = {"Equip: ", "装备："},
+}
+
+local function pick2(map, key)
+    local v = map[key]
+    if type(v) == "table" then return v end
+    return { tostring(key), tostring(key) }
+end
+
+local function fmtMoney(c, en)
+    c = tonumber(c) or 0
+    local g = math.floor(c / 10000); c = c % 10000
+    local s = math.floor(c / 100); c = c % 100
+    local parts = {}
+    if g > 0 then parts[#parts + 1] = g .. (en and "g" or "金") end
+    if s > 0 then parts[#parts + 1] = s .. (en and "s" or "银") end
+    if c > 0 or #parts == 0 then parts[#parts + 1] = c .. (en and "c" or "铜") end
+    return table.concat(parts, " ")
+end
+
+local function dpsOf(det)
+    if not det.dg or not det.dl or det.dl <= 0 then return nil end
+    local sum = 0
+    for _, d in ipairs(det.dg) do sum = sum + (d[1] + d[2]) / 2 end
+    return sum / (det.dl / 1000)
+end
+
+-- entry -> { {text,r,g,b}, ... }：纯函数便于测试；OnEnter 只负责展示
+local function itemTooltipLines(entry, lang)
+    local out = {}
+    local function add(t, r, g, b) out[#out + 1] = { text = t, r = r, g = g, b = b } end
+    local it = EL_Items and EL_Items[entry]
+    if not it then return out end
+    local en = (lang == "en")
+    local r, g, b = qColor(it[3])
+    add(itemName(entry, lang) or ("item" .. entry), r, g, b)
+    local det = it[5]
+    if type(det) ~= "table" then
+        add(L("品质 ") .. (QUALITY_NAME[lang][it[3]] or tostring(it[3])), 0.8, 0.8, 0.8)
+        local srcs = getSources(entry)
+        if srcs[1] then
+            add(L("掉落自") .. ": " .. (creatureName(srcs[1], lang) or "?"), 0.6, 0.6, 0.6)
+        end
+        add(L("游戏内未见过该物品"), 0.5, 0.5, 0.5)
+        return out
+    end
+    -- 唯一 / 绑定
+    if det.mc and det.mc > 1 then
+        add(L("唯一"), 1, 0.1, 0.1)
+    end
+    if type(det.b) == "number" then
+        local bd = pick2(T_BOND, det.b)
+        add(en and bd[1] or bd[2], 1, 1, 1)
+    elseif type(det.b) == "string" then
+        local raw = T_BOND_RAW[det.b]
+        add(raw and (en and raw[1] or raw[2]) or det.b, 1, 1, 1)
+    end
+    -- 类别 / 装备位
+    if det.c then
+        local cls = pick2(T_CLASS, det.c)
+        local sub = nil
+        if det.c == 2 then sub = T_SUB_WEAPON[det.sc]
+        elseif det.c == 4 then sub = T_SUB_ARMOR[det.sc] end
+        local inv = (det.inv and det.inv > 0) and T_INV[det.inv] or nil
+        if sub then
+            add(en and sub[1] or sub[2], 1, 1, 1)
+        elseif det.c ~= 2 then
+            add(en and cls[1] or cls[2], 1, 1, 1)
+        end
+        if inv then
+            add(en and inv[1] or inv[2], 1, 1, 1)
+        end
+    end
+    -- 伤害/攻速/DPN 或 护甲
+    if det.dg and det.dg[1] then
+        for _, d in ipairs(det.dg) do
+            local sk = pick2(T_DMG, d[3])
+            add(d[1] .. " - " .. d[2] .. " " .. (en and sk[1] or sk[2]), 1, 1, 1)
+        end
+        local dps = dpsOf(det)
+        if dps then
+            add((en and "DPS " or "") .. string.format("%.1f", dps)
+                .. (en and "" or " " .. "每秒伤害"), 1, 1, 1)
+        end
+        if det.dl then
+            local spd = det.dl / 1000
+            add((en and "Speed " or "速度 ") .. string.format("%.2f", spd), 1, 1, 1)
+        end
+    elseif det.ar then
+        add(en and (det.ar .. " Armor") or ("护甲值 " .. det.ar), 1, 1, 1)
+    end
+    if det.bl then
+        add(en and (det.bl .. " Block") or ("格挡值 " .. det.bl), 1, 1, 1)
+    end
+    -- 属性
+    for _, sv in ipairs(det.st or {}) do
+        local st = pick2(T_STAT, sv[1])
+        add("+" .. sv[2] .. " " .. (en and st[1] or st[2]), 1, 1, 1)
+    end
+    -- 抗性
+    for _, sv in ipairs(det.rs or {}) do
+        local rs = pick2(T_RES, sv[1])
+        add("+" .. sv[2] .. " " .. (en and rs[1] or rs[2]), 1, 1, 1)
+    end
+    -- 耐久 / 需求等级 / 物品等级
+    if det.du then
+        add(en and ("Durability " .. det.du .. " / " .. det.du)
+            or ("耐久度 " .. det.du .. " / " .. det.du), 1, 1, 1)
+    end
+    if det.rl and det.rl > 0 then
+        add(L("需要等级 ") .. det.rl, 1, 1, 1)
+    end
+    if det.il then
+        add(en and ("Item Level " .. det.il) or ("物品等级 " .. det.il), 1, 1, 1)
+    end
+    -- 法术/触发
+    for _, s in ipairs(det.spx or {}) do
+        local trig = T_TRIGGER[s[1]]
+        local prefix = trig and (en and trig[1] or trig[2]) or (s[1] or "")
+        local nm = en and s[2] or s[3]
+        local ds = en and s[4] or s[5]
+        if ds and ds ~= "" then
+            if nm and nm ~= "" and nm ~= ds then
+                add(nm, 0.6, 0.6, 0.6)
+            end
+            add(prefix .. ds, 0.25, 1, 0.01)
+        elseif nm and nm ~= "" then
+            add(prefix .. nm, 0.25, 1, 0.01)
+        end
+    end
+    -- 套装 / 随机附魔
+    if det.set_zh or det.set_en then
+        add(L("套装") .. ": " .. (en and (det.set_en or det.set_zh) or (det.set_zh or det.set_en)), 0.6, 0.8, 1)
+    end
+    if det.re then
+        add("«" .. L("随机附魔") .. "»", 0.25, 1, 0.01)
+    end
+    -- 灰字描述
+    if det.dx_zh or det.dx_en then
+        add(en and (det.dx_en or det.dx_zh) or (det.dx_zh or det.dx_en), 1, 0.96, 0.41)
+    end
+    -- 出售价格 + 掉落来源
+    if det.sp then
+        add(L("出售价格") .. ": " .. fmtMoney(det.sp, en), 0.85, 0.85, 0.85)
+    end
+    local srcs = getSources(entry)
+    if srcs[1] then
+        add(L("掉落自") .. ": " .. (creatureName(srcs[1], lang) or "?"), 0.6, 0.6, 0.6)
+    end
+    return out
+end
+
 -- ============================================================ 主窗口状态
 
 local frame, statusBar, langBtn, favBtn, qBtn, searchBox, backBtn, titleText
@@ -125,6 +363,7 @@ local NAV_VISIBLE, ITEM_VISIBLE = 23, 23
 local navOffset, itemOffset = 0, 0   -- 自管滚动偏移（客户端 FauxScrollFrame_Update 对无滚动条模板崩溃）
 local navCount, itemCount = 0, 0
 local refresh   -- 前向声明：行工厂的 OnClick 闭包引用它（local 必须在闭包创建处可见）
+local toggle    -- 前向声明：小地图按钮 OnClick 引用
 
 -- ============================================================ 滚动（自管，无滚动条依赖）
 
@@ -224,18 +463,8 @@ local function makeItemRow(idx)
         end
         if not shown then
             pcall(GameTooltip.ClearLines, GameTooltip)
-            local it = EL_Items and EL_Items[e]
-            if it then
-                local r, g, b = qColor(it[3])
-                GameTooltip:AddLine(itemName(e, cfgReady().lang) or "?", r, g, b)
-                local qn = QUALITY_NAME[cfgReady().lang][it[3]] or tostring(it[3])
-                GameTooltip:AddLine(L("品质 ") .. qn, 0.8, 0.8, 0.8)
-                local srcs = getSources(e)
-                if srcs[1] then
-                    GameTooltip:AddLine(L("掉落自") .. ": " .. (creatureName(srcs[1], cfgReady().lang) or "?"),
-                        0.6, 0.6, 0.6)
-                end
-                GameTooltip:AddLine(L("游戏内未见过该物品"), 0.5, 0.5, 0.5)
+            for _, ln in ipairs(itemTooltipLines(e, cfgReady().lang)) do
+                GameTooltip:AddLine(ln.text, ln.r, ln.g, ln.b)
             end
         end
         pcall(GameTooltip.Show, GameTooltip)
@@ -704,7 +933,7 @@ end
 
 -- ============================================================ 入口 / 命令
 
-local function toggle()
+toggle = function()
     if frame and frame:IsVisible() then
         frame:Hide()
         return
@@ -712,6 +941,77 @@ local function toggle()
     buildUI()
     refresh()
     pcall(frame.Show, frame)
+end
+
+-- ============================================================ 小地图按钮（可拖拽环绕，点击开关）
+
+local minimapBtn
+local mmDrag, mmMoved = false, false
+local MINIMAP_R_DEFAULT = 78
+
+local function mmAtan2(y, x)
+    local ok, r = pcall(math.atan2, y, x)
+    if ok and r then return r end
+    if x > 0 then return math.atan(y / x)
+    elseif x < 0 and y >= 0 then return math.atan(y / x) + math.pi
+    elseif x < 0 then return math.atan(y / x) - math.pi
+    else return (y >= 0) and (math.pi / 2) or -(math.pi / 2) end
+end
+
+local function mmPlace()
+    if not minimapBtn then return end
+    local c = cfgReady()
+    if type(c.mm) ~= "number" then c.mm = -0.8 end
+    local r = tonumber(c.mmr) or MINIMAP_R_DEFAULT
+    minimapBtn:ClearAllPoints()
+    minimapBtn:SetPoint("CENTER", Minimap, "CENTER", math.cos(c.mm) * r, math.sin(c.mm) * r)
+end
+
+local function buildMinimapButton()
+    if minimapBtn or not Minimap then return end
+    minimapBtn = CreateFrame("Button", "EmberLootMinimapButton", Minimap)
+    minimapBtn:SetFrameStrata("MEDIUM")
+    minimapBtn:SetFrameLevel(8)
+    minimapBtn:SetWidth(31)
+    minimapBtn:SetHeight(31)
+    minimapBtn:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
+    local border = minimapBtn:CreateTexture(nil, "OVERLAY")
+    border:SetWidth(53); border:SetHeight(53)
+    border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+    border:SetPoint("TOPLEFT", minimapBtn, "TOPLEFT")
+    local icon = minimapBtn:CreateTexture(nil, "ARTWORK")
+    icon:SetWidth(17); icon:SetHeight(17)
+    icon:SetTexture("Interface\\Icons\\INV_Misc_Bag_11")
+    icon:SetPoint("CENTER", minimapBtn, "CENTER", 1, -1)
+    minimapBtn.icon = icon
+    minimapBtn:SetScript("OnMouseDown", function()
+        mmDrag = true
+        mmMoved = false
+    end)
+    minimapBtn:SetScript("OnMouseUp", function() mmDrag = false end)
+    minimapBtn:SetScript("OnUpdate", function()
+        if not mmDrag then return end
+        local mx, my = GetCursorPosition()
+        local s = (Minimap.GetEffectiveScale and Minimap:GetEffectiveScale()) or UIParent:GetEffectiveScale() or 1
+        local cx, cy = Minimap:GetCenter()
+        local dx, dy = (mx or 0) / s - (cx or 0), (my or 0) / s - (cy or 0)
+        if math.abs(dx) + math.abs(dy) > 4 then mmMoved = true end
+        cfgReady().mm = mmAtan2(dy, dx)
+        mmPlace()
+    end)
+    minimapBtn:SetScript("OnClick", function()
+        if mmMoved then return end  -- 拖拽结束不算点击
+        if toggle then toggle() end
+    end)
+    minimapBtn:SetScript("OnEnter", function()
+        pcall(GameTooltip.SetOwner, GameTooltip, minimapBtn, "ANCHOR_LEFT")
+        pcall(GameTooltip.ClearLines, GameTooltip)
+        GameTooltip:AddLine("EmberLoot " .. VERSION, 0.4, 0.9, 1)
+        GameTooltip:AddLine(L("点击打开掉落浏览器"), 0.8, 0.8, 0.8)
+        pcall(GameTooltip.Show, GameTooltip)
+    end)
+    minimapBtn:SetScript("OnLeave", function() pcall(GameTooltip.Hide, GameTooltip) end)
+    mmPlace()
 end
 
 SLASH_EMBERLOOT1 = "/el"
@@ -735,9 +1035,10 @@ SlashCmdList["EMBERLOOT"] = function(msg)
 end
 
 -- 登录提示
-local loginFrame = CreateFrame("Frame")
+local loginFrame = CreateFrame("Frame", "EmberLootLoginFrame")
 loginFrame:RegisterEvent("PLAYER_LOGIN")
 loginFrame:SetScript("OnEvent", function()
+    pcall(buildMinimapButton)
     local n, z = 0, 0
     if EL_Items then for _ in pairs(EL_Items) do n = n + 1 end end
     if EL_Zones then for _, zz in pairs(EL_Zones) do
@@ -746,3 +1047,11 @@ loginFrame:SetScript("OnEvent", function()
     DEFAULT_CHAT_FRAME:AddMessage("|cff00c0ffEmberLoot|r " .. VERSION .. " — "
         .. z .. L("个副本 / ") .. n .. L(" 件物品，") .. L("输入 /el 打开掉落浏览器"))
 end)
+
+-- 测试/调试钩子（sim_test 专用，零运行时开销）
+EL_Debug = {
+    tooltipLines = itemTooltipLines,
+    fmtMoney = fmtMoney,
+    dpsOf = dpsOf,
+    version = VERSION,
+}
