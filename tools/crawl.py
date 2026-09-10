@@ -9,11 +9,15 @@ Stages (run in order, each resumes from cache):
 
 Usage: python crawl.py zones|creatures|lua|all
 """
+import http.client
 import json
+import gzip
 import os
 import re
+import ssl
 import subprocess
 import sys
+import threading
 import time
 
 BASE = "https://database.emberveil.org"
@@ -24,22 +28,86 @@ OUT = os.path.join(ROOT, "tools", "out")
 os.makedirs(CACHE, exist_ok=True)
 os.makedirs(OUT, exist_ok=True)
 
-SLEEP = 0.4          # polite delay between requests
+SLEEP = 0.4          # polite delay between requests (curl fallback path)
 ZH = {"Cookie": "locale=zhCN"}          # localized payload cookie
+
+_tls = threading.local()   # keep-alive 连接按线程隔离（共享连接不安全）
+
+
+def _ka_get(url_path, zh=False, fresh=False):
+    """GET；返回 (status, body_bytes)。fresh=True 时每次新建连接（本网络最稳）。
+    fresh=False 时按线程复用连接，40 次后主动重建。"""
+    for attempt in range(3):
+        try:
+            if fresh:
+                ctx = ssl.create_default_context()
+                conn = http.client.HTTPSConnection("database.emberveil.org",
+                                                   timeout=20, context=ctx)
+                _tls.uses = 0
+            else:
+                if getattr(_tls, "conn", None) is None:
+                    ctx = ssl.create_default_context()
+                    _tls.conn = http.client.HTTPSConnection("database.emberveil.org",
+                                                            timeout=15, context=ctx)
+                    _tls.uses = 0
+                conn = _tls.conn
+            headers = {
+                "User-Agent": UA,
+                "Accept": "text/html,application/xhtml+xml,*/*",
+                "Accept-Encoding": "gzip",
+                "Connection": "close" if fresh else "keep-alive",
+            }
+            if zh:
+                headers["Cookie"] = "locale=zhCN"
+            conn.request("GET", url_path, headers=headers)
+            r = conn.getresponse()
+            body = r.read()
+            if r.getheader("Content-Encoding") == "gzip":
+                body = gzip.decompress(body)
+            if fresh:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            else:
+                _tls.uses += 1
+                if _tls.uses >= 40:
+                    try:
+                        _tls.conn.close()
+                    except Exception:
+                        pass
+                    _tls.conn = None
+            return r.status, body
+        except Exception:
+            try:
+                if not fresh and getattr(_tls, "conn", None):
+                    _tls.conn.close()
+            except Exception:
+                pass
+            _tls.conn = None
+            time.sleep(0.5 + attempt)
+    return 0, b""
 
 
 def fetch(url, out_name, zh=False, force=False):
-    """curl with on-disk cache. Returns (text, from_cache)."""
+    """fresh-connection http.client GET with on-disk cache. Returns (text, from_cache).
+
+    网络实测（2026-09-10）：
+    - curl.exe（Schannel 指纹）被 SNI 阻断，exit 35，几乎全灭 -> 不能用 curl
+    - keep-alive 长连接会被中途静默掐断，线程挂在 read 超时 -> 不能复用连接
+    - python http.client 每次新建连接（完整 TLS 握手）稳定，约 2-3s/请求
+    """
     p = os.path.join(CACHE, out_name)
     if os.path.exists(p) and os.path.getsize(p) > 0 and not force:
         return open(p, encoding="utf-8", errors="ignore").read(), True
-    cmd = ["curl.exe", "-sL", "-m", "60", "-A", UA, url, "-o", p]
-    if zh:
-        cmd += ["-H", "Cookie: locale=zhCN"]
-    subprocess.run(cmd, capture_output=True, text=True)
-    if os.path.exists(p) and os.path.getsize(p) > 0:
-        time.sleep(SLEEP)
-        return open(p, encoding="utf-8", errors="ignore").read(), False
+    path_q = url[len(BASE):] if url.startswith(BASE) else url
+    for attempt in range(3):
+        code, body = _ka_get(path_q, zh=zh, fresh=True)
+        if code == 200 and body:
+            with open(p, "wb") as f:
+                f.write(body)
+            return open(p, encoding="utf-8", errors="ignore").read(), False
+        time.sleep(0.5 + attempt)
     return "", False
 
 

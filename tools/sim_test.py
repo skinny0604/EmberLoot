@@ -227,12 +227,21 @@ end)
 
 step("minimap drag math (OnUpdate)", function()
     local mb = REG["EmberLootMinimapButton"]
+    -- 0.2.1 回归：按下后光标没动 -> 不算拖拽，点击必须生效
+    GetCursorPosition = function() return 500, 400 end
+    mb._scripts.OnMouseDown()
+    mb._scripts.OnUpdate()   -- 光标未动，mmMoved 必须仍为 false
+    mb._scripts.OnClick()    -- 若被误判拖拽（0.2.0 bug），这里会静默不 toggle
+    mb._scripts.OnMouseUp()
+    -- 真拖拽：光标移开 >4px -> 记录角度
+    GetCursorPosition = function() return 560, 380 end
     mb._scripts.OnMouseDown()
     mb._scripts.OnUpdate()   -- GetCursorPosition -> 角度更新 + mmPlace 不炸
     mb._scripts.OnMouseUp()
     mb._scripts.OnUpdate()   -- 未拖拽状态 early-return
     local c = EL_Config
     assert(type(c.mm) == "number", "mm angle not stored after drag")
+    GetCursorPosition = function() return 500, 400 end
 end)
 
 step("minimap click toggles window", function()

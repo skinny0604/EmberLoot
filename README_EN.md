@@ -2,13 +2,13 @@
 
 English | [中文](README.md)
 
-**Dungeon & raid loot browser for Emberveil** (AtlasLoot-style) · For the Emberveil client (WoW 1.12.1 emulation / Lua 5.1 API) · Current version 0.2.0
+**Dungeon & raid loot browser for Emberveil** (AtlasLoot-style) · For the Emberveil client (WoW 1.12.1 emulation / Lua 5.1 API) · Current version 0.2.1
 
 ![EmberLoot](docs/preview.png)
 
 ## Features
 
-- **Instance → boss → loot table** three-level browsing: bundles 8 released instances (Scarlet Monastery, Deadmines, BRD, Stratholme, Molten Core, Onyxia's Lair etc. — grows with the official database), 64 bosses/elites + 8 zone trash-pool entries, **3809 items / 9256 drop rows** (bilingual names)
+- **Instance → boss → loot table** three-level browsing: bundles **25 released instances/battlegrounds** (Scarlet Monastery, Deadmines, BRD, Dire Maul, Maraudon, Sunken Temple, Zul'Farrak, Blackrock Spire, Scholomance, Stratholme, Molten Core, Onyxia's Lair… — grows with the official database), 190 bosses/elites + 22 zone trash-pool entries, **4567 items / 24551 drop rows** (bilingual names)
 - Items colored by quality (Poor→Legendary), with icons, drop chance, multi-drop group markers ("one of N"), and quest-item markers
 - **Item stat tooltips**: hover any item to see item level / required level, binding, armor / damage / DPS / speed, stats and resistances, durability, on-use & on-hit spells, sets, sell price (0.2.0 bundles full stat data — no in-game cache needed)
 - **Minimap button**: snaps around the minimap, draggable, click to toggle the browser
@@ -20,9 +20,9 @@ English | [中文](README.md)
 
 ## Install
 
-1. Download `EmberLoot-0.2.0.zip` and extract it
+1. Download `EmberLoot-0.2.1.zip` and extract it
 2. Put the whole `EmberLoot` folder into `...\Emberveil\live\Azeroth\Interface\AddOns\`
-3. Re-login; when chat prints `EmberLoot 0.2.0 — N instances / M items` you are set
+3. Re-login; when chat prints `EmberLoot 0.2.1 — N instances / M items` you are set
 
 ## Commands
 

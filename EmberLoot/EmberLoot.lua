@@ -1,4 +1,4 @@
--- EmberLoot 0.2.0 —— Emberveil 掉落浏览器（AtlasLoot 式：副本→首领→掉落表）
+-- EmberLoot 0.2.1 —— Emberveil 掉落浏览器（AtlasLoot 式：副本→首领→掉落表）
 -- 客户端：Emberveil UE5（1.12.1 / Lua 5.1 API）。零第三方库，OneJudge 同款 pcall 风格。
 --
 -- 数据（data.lua 生成）：
@@ -16,7 +16,7 @@
 -- 交互：左列点副本→首领；右列始终是物品表；Shift+点物品=收藏；聊天框打开时点物品=插链接；
 --       悬停物品=属性 tooltip（缓存物品用客户端原生，其余用数据库自绘）；小地图按钮可拖拽、点击开关窗口。
 
-local VERSION = "0.2.0"
+local VERSION = "0.2.1"
 
 -- ============================================================ 配置
 
@@ -947,6 +947,7 @@ end
 
 local minimapBtn
 local mmDrag, mmMoved = false, false
+local mmStartX, mmStartY = 0, 0   -- 按下瞬间的光标位置（位移基准）
 local MINIMAP_R_DEFAULT = 78
 
 local function mmAtan2(y, x)
@@ -987,16 +988,23 @@ local function buildMinimapButton()
     minimapBtn:SetScript("OnMouseDown", function()
         mmDrag = true
         mmMoved = false
+        -- 关键：位移基准是「按下那一刻」的光标，而不是小地图圆心——
+        -- 按钮本身就在离圆心 78px 的圆周上，用圆心做基准会把每次点击都误判成拖拽
+        local s = (Minimap.GetEffectiveScale and Minimap:GetEffectiveScale()) or UIParent:GetEffectiveScale() or 1
+        local mx, my = GetCursorPosition()
+        mmStartX, mmStartY = (mx or 0) / s, (my or 0) / s
     end)
     minimapBtn:SetScript("OnMouseUp", function() mmDrag = false end)
     minimapBtn:SetScript("OnUpdate", function()
         if not mmDrag then return end
         local mx, my = GetCursorPosition()
         local s = (Minimap.GetEffectiveScale and Minimap:GetEffectiveScale()) or UIParent:GetEffectiveScale() or 1
-        local cx, cy = Minimap:GetCenter()
-        local dx, dy = (mx or 0) / s - (cx or 0), (my or 0) / s - (cy or 0)
+        local ux, uy = (mx or 0) / s, (my or 0) / s
+        local dx, dy = ux - mmStartX, uy - mmStartY
         if math.abs(dx) + math.abs(dy) > 4 then mmMoved = true end
-        cfgReady().mm = mmAtan2(dy, dx)
+        -- 环绕角度仍以小地图圆心为基准
+        local cx, cy = Minimap:GetCenter()
+        cfgReady().mm = mmAtan2(uy - (cy or 0), ux - (cx or 0))
         mmPlace()
     end)
     minimapBtn:SetScript("OnClick", function()
